@@ -29,7 +29,7 @@ def day_file_path(date_str: str) -> str:
     return f"{OPTIONS_OHLC_DIR}/options_ohlc_{date_str}.csv"
 
 
-def write_day_file(date_str: str, rows: list, token: str) -> None:
+def write_day_file(date_str: str, rows: list, github_token: str) -> None:
     """rows: list of dicts, each matching DISK_COLUMNS (missing values as
     None/NaN are fine -- they'll write out as empty CSV cells)."""
     path = day_file_path(date_str)
@@ -38,7 +38,7 @@ def write_day_file(date_str: str, rows: list, token: str) -> None:
 
     csv_text = df.to_csv(index=False)
     github_io.put_file(
-        path, csv_text, token,
+        path, csv_text, github_token,
         message=f"Options EOD OHLC for {date_str}",
     )
     print(f"[options_file_io] Wrote {len(df)} rows to {path}")

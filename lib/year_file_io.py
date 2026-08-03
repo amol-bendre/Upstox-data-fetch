@@ -58,13 +58,13 @@ def _from_disk_format(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def write_day_into_year_file(interval_label: str, date_str: str, day_df: pd.DataFrame, token: str) -> None:
+def write_day_into_year_file(interval_label: str, date_str: str, day_df: pd.DataFrame, github_token: str) -> None:
     """day_df must have a 'timestamp' column (datetime or parseable
     string) plus open/high/low/close -- same shape aggregate.py already
     produces. The date/time split happens here, not upstream."""
     path = year_file_path(interval_label, date_str)
 
-    existing_csv = github_io.get_file_raw(path, token)
+    existing_csv = github_io.get_file_raw(path, github_token)
     if existing_csv:
         existing_df = pd.read_csv(io.StringIO(existing_csv), dtype={"date": str, "time": str})
         existing_df = _from_disk_format(existing_df)
@@ -86,7 +86,7 @@ def write_day_into_year_file(interval_label: str, date_str: str, day_df: pd.Data
     csv_text = disk_df.to_csv(index=False)
 
     github_io.put_file(
-        path, csv_text, token,
+        path, csv_text, github_token,
         message=f"Update {interval_label} for {date_str}",
     )
     print(f"[year_file_io] Wrote {len(day_df)} rows for {date_str} into {path} "

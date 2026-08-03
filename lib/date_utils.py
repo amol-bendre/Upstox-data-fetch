@@ -18,7 +18,7 @@ def today_ist_str() -> str:
     return now_ist().strftime("%Y-%m-%d")
 
 
-def is_holiday(date_str: str, token: str) -> bool:
+def is_holiday(date_str: str, github_token: str) -> bool:
     """
     Reads holidays.txt from the shared data repo. Expected format: one
     YYYY-MM-DD per line (matches what the existing OI app / bhavcopy
@@ -27,7 +27,7 @@ def is_holiday(date_str: str, token: str) -> bool:
     turns out empty than silently skip a real trading day because this
     file was unreachable.
     """
-    content = github_io.get_file_raw(HOLIDAYS_PATH, token)
+    content = github_io.get_file_raw(HOLIDAYS_PATH, github_token)
     if content is None:
         print(f"[date_utils] Could not read {HOLIDAYS_PATH} -- assuming NOT a holiday.")
         return False
