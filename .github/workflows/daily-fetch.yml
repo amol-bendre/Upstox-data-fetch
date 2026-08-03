@@ -1,0 +1,113 @@
+name: Daily Upstox Data Fetch
+
+on:
+  schedule:
+    # 6:00 PM IST = 12:30 UTC. Single attempt only (no retry cron entries)
+    # -- the dominant failure mode here is a stale daily OAuth login,
+    # which a same-evening retry can't fix by itself. Manual re-run
+    # (after re-authenticating) is the recovery path.
+    - cron: '30 12 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: 'Backfill target date (YYYY-MM-DD). Leave blank for today (IST). Applies to BOTH Nifty and options fetch.'
+        required: false
+        default: ''
+
+jobs:
+  nifty:
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.fetch.outputs.available }}
+      date: ${{ steps.fetch.outputs.date }}
+      detail: ${{ steps.fetch.outputs.detail }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch Nifty OHLC
+        id: fetch
+        env:
+          UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
+          DATA_REPO_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
+          DATA_REPO: amol-bendre/stock-market-data
+          TARGET_DATE: ${{ github.event.inputs.target_date }}
+        run: python fetch_nifty_ohlc.py
+
+  # Sequential, but NOT blocking: options job waits for nifty to finish
+  # (needs: nifty) but still runs even if nifty failed (if: always()) --
+  # the two pipelines are independent and one failing shouldn't skip
+  # the other. Nifty runs first because it's fast (single instrument);
+  # options is the long-running batch (~600 calls, several minutes).
+  options:
+    needs: nifty
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.fetch.outputs.available }}
+      date: ${{ steps.fetch.outputs.date }}
+      detail: ${{ steps.fetch.outputs.detail }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch options EOD OHLC
+        id: fetch
+        env:
+          UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
+          DATA_REPO_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
+          DATA_REPO: amol-bendre/stock-market-data
+          TARGET_DATE: ${{ github.event.inputs.target_date }}
+        run: python fetch_options_ohlc.py
+
+  # Combined Telegram message for both jobs. Single-attempt design means
+  # every scheduled run IS the last (and only) attempt -- IS_LAST_ATTEMPT
+  # is simply true whenever this was a schedule-triggered run, and false
+  # for manual workflow_dispatch runs (kept silent, consistent with the
+  # bhavcopy/FII workflow's existing behavior).
+  alert:
+    needs: [nifty, options]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Telegram alert (combined)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          IS_LAST_ATTEMPT: ${{ github.event_name == 'schedule' }}
+          JOB1_LABEL: "Nifty OHLC"
+          JOB1_STATUS: ${{ needs.nifty.outputs.available == 'true' && 'success' || (needs.nifty.outputs.available == 'partial' && 'partial' || (needs.nifty.outputs.available == 'skipped' && 'success' || 'failure')) }}
+          JOB1_DETAIL: ${{ needs.nifty.outputs.detail }}
+          JOB1_DATE: ${{ needs.nifty.outputs.date }}
+          JOB2_LABEL: "Options EOD OHLC"
+          JOB2_STATUS: ${{ needs.options.outputs.available == 'true' && 'success' || (needs.options.outputs.available == 'partial' && 'partial' || (needs.options.outputs.available == 'skipped' && 'success' || 'failure')) }}
+          JOB2_DETAIL: ${{ needs.options.outputs.detail }}
+          JOB2_DATE: ${{ needs.options.outputs.date }}
+        run: python telegram_alert.py
