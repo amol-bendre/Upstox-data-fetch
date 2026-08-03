@@ -80,6 +80,12 @@ def write_day_into_year_file(interval_label: str, date_str: str, day_df: pd.Data
         existing_df = existing_df[existing_df["timestamp"].dt.date != target_date]
 
     combined = pd.concat([existing_df, day_df], ignore_index=True)
+    # Guard: concatenating with an empty existing_df (no year-file yet --
+    # true on this repo's very first run for a given interval) can leave
+    # 'timestamp' as a generic object dtype rather than datetime64,
+    # which breaks .dt access below. Force it back explicitly rather
+    # than relying on pandas to infer it correctly from a mixed concat.
+    combined["timestamp"] = pd.to_datetime(combined["timestamp"])
     combined = combined.sort_values("timestamp").reset_index(drop=True)
 
     disk_df = _to_disk_format(combined)
