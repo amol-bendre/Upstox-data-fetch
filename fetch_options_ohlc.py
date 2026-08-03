@@ -51,11 +51,18 @@ from lib.date_guard import RunDateGuard
 
 
 def main():
-    token = os.environ.get("UPSTOX_ACCESS_TOKEN", "").strip()
-    if not token:
+    upstox_token = os.environ.get("UPSTOX_ACCESS_TOKEN", "").strip()
+    github_token = os.environ.get("DATA_REPO_TOKEN", "").strip()
+
+    if not upstox_token:
         print("ERROR: UPSTOX_ACCESS_TOKEN not set.")
         gha_output.set_output("available", "false")
         gha_output.set_output("detail", "UPSTOX_ACCESS_TOKEN missing")
+        sys.exit(1)
+    if not github_token:
+        print("ERROR: DATA_REPO_TOKEN not set.")
+        gha_output.set_output("available", "false")
+        gha_output.set_output("detail", "DATA_REPO_TOKEN missing")
         sys.exit(1)
 
     target_date = os.environ.get("TARGET_DATE", "").strip() or date_utils.today_ist_str()
@@ -67,7 +74,7 @@ def main():
         gha_output.set_output("detail", "weekend")
         return
 
-    if date_utils.is_holiday(target_date, token):
+    if date_utils.is_holiday(target_date, github_token):
         print(f"{target_date} is a listed holiday -- skipping.")
         gha_output.set_output("available", "skipped")
         gha_output.set_output("detail", "holiday")
@@ -77,7 +84,7 @@ def main():
 
     print(f"Looking up next two expiries on/after {target_date} ...")
     try:
-        expiries = option_chain.get_next_two_expiries(token, target_date)
+        expiries = option_chain.get_next_two_expiries(upstox_token, target_date)
     except Exception as e:
         print(f"  FAILED to get expiry list: {e}")
         gha_output.set_output("available", "false")
@@ -92,7 +99,7 @@ def main():
     all_instruments = []  # list of (expiry, strike, 'CE'/'PE', instrument_key)
     for expiry in expiries:
         try:
-            keymap = option_chain.get_option_chain(expiry, token)
+            keymap = option_chain.get_option_chain(expiry, upstox_token)
         except Exception as e:
             print(f"  FAILED to get option chain for {expiry}: {e}")
             gha_output.set_output("available", "false")
@@ -111,7 +118,7 @@ def main():
     ok_count = 0
 
     for i, (expiry, strike, opt_type, key) in enumerate(all_instruments, start=1):
-        result = upstox_candles.fetch_candles(key, target_date, token)
+        result = upstox_candles.fetch_candles(key, target_date, upstox_token)
 
         if result.status == "http_error":
             http_error_count += 1
@@ -150,7 +157,7 @@ def main():
 
     rows = list(per_minute.values())
     if rows:
-        options_file_io.write_day_file(target_date, rows, token)
+        options_file_io.write_day_file(target_date, rows, github_token)
 
     # Job-level failure conditions (see module docstring for reasoning):
     #   - any HTTP-level error, OR

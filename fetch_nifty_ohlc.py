@@ -37,11 +37,18 @@ def build_session_grid(date_str: str) -> set:
 
 
 def main():
-    token = os.environ.get("UPSTOX_ACCESS_TOKEN", "").strip()
-    if not token:
+    upstox_token = os.environ.get("UPSTOX_ACCESS_TOKEN", "").strip()
+    github_token = os.environ.get("DATA_REPO_TOKEN", "").strip()
+
+    if not upstox_token:
         print("ERROR: UPSTOX_ACCESS_TOKEN not set.")
         gha_output.set_output("available", "false")
         gha_output.set_output("detail", "UPSTOX_ACCESS_TOKEN missing")
+        sys.exit(1)
+    if not github_token:
+        print("ERROR: DATA_REPO_TOKEN not set.")
+        gha_output.set_output("available", "false")
+        gha_output.set_output("detail", "DATA_REPO_TOKEN missing")
         sys.exit(1)
 
     target_date = os.environ.get("TARGET_DATE", "").strip() or date_utils.today_ist_str()
@@ -53,7 +60,7 @@ def main():
         gha_output.set_output("detail", "weekend")
         return
 
-    if date_utils.is_holiday(target_date, token):
+    if date_utils.is_holiday(target_date, github_token):
         print(f"{target_date} is a listed holiday -- skipping.")
         gha_output.set_output("available", "skipped")
         gha_output.set_output("detail", "holiday")
@@ -62,7 +69,7 @@ def main():
     guard = RunDateGuard(target_date)
 
     print(f"Fetching Nifty 1-min candles for {target_date} ...")
-    result = upstox_candles.fetch_candles(NIFTY_KEY, target_date, token)
+    result = upstox_candles.fetch_candles(NIFTY_KEY, target_date, upstox_token)
     print(f"  {result.status}: {result.detail}")
 
     if result.status != "ok":
@@ -109,7 +116,7 @@ def main():
         sys.exit(1)
 
     # Write 1-min base.
-    year_file_io.write_day_into_year_file("1min", target_date, df, token)
+    year_file_io.write_day_into_year_file("1min", target_date, df, github_token)
 
     # Derive and write every higher timeframe.
     derived = aggregate_all(df)
@@ -117,7 +124,7 @@ def main():
         if derived_df.empty:
             print(f"  Skipping write for {interval_label} -- no rows derived.")
             continue
-        year_file_io.write_day_into_year_file(interval_label, target_date, derived_df, token)
+        year_file_io.write_day_into_year_file(interval_label, target_date, derived_df, github_token)
 
     # Gap is logged above but no longer affects job status -- see the
     # long comment on the gap-check itself for why (CAS observation
