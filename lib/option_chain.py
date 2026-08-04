@@ -21,7 +21,11 @@ def get_option_chain(expiry: str, token: str) -> dict:
         params={"instrument_key": NIFTY_KEY, "expiry_date": expiry},
         timeout=30,
     )
-    r.raise_for_status()
+    if r.status_code != 200:
+        raise RuntimeError(
+            f"HTTP {r.status_code} from GET /option/chain (expiry={expiry}). "
+            f"Response body: {r.text[:1000]}"
+        )
     chain = r.json().get("data", [])
 
     keymap = {}

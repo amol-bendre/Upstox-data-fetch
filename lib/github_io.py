@@ -34,7 +34,10 @@ def get_file_raw(path: str, token: str, data_repo: str = DATA_REPO) -> str | Non
     r = requests.get(url, headers=_headers(token, raw=True), timeout=30)
     if r.status_code == 404:
         return None
-    r.raise_for_status()
+    if r.status_code != 200:
+        raise RuntimeError(
+            f"HTTP {r.status_code} from GitHub GET {path} (raw). Response body: {r.text[:1000]}"
+        )
     return r.text
 
 
@@ -47,7 +50,10 @@ def get_file_sha(path: str, token: str, data_repo: str = DATA_REPO) -> str | Non
     r = requests.get(url, headers=_headers(token, raw=False), timeout=30)
     if r.status_code == 404:
         return None
-    r.raise_for_status()
+    if r.status_code != 200:
+        raise RuntimeError(
+            f"HTTP {r.status_code} from GitHub GET {path} (sha lookup). Response body: {r.text[:1000]}"
+        )
     return r.json().get("sha")
 
 
@@ -65,4 +71,7 @@ def put_file(path: str, content: str, token: str, message: str, data_repo: str =
         payload["sha"] = sha
 
     r = requests.put(url, headers=_headers(token, raw=False), json=payload, timeout=60)
-    r.raise_for_status()
+    if r.status_code not in (200, 201):
+        raise RuntimeError(
+            f"HTTP {r.status_code} from GitHub PUT {path}. Response body: {r.text[:1000]}"
+        )
