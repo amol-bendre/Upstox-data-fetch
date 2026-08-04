@@ -84,7 +84,7 @@ def main():
 
     print(f"Looking up next two expiries on/after {target_date} ...")
     try:
-        expiries = option_chain.get_next_two_expiries(upstox_token, target_date)
+        expiries = option_chain.get_next_two_expiries(target_date, github_token)
     except Exception as e:
         print(f"  FAILED to get expiry list: {e}")
         gha_output.set_output("available", "false")
