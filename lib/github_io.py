@@ -21,6 +21,15 @@ from lib.config import DATA_REPO
 API_ROOT = "https://api.github.com"
 
 
+class GitHubConflictError(Exception):
+    """Raised specifically on HTTP 409 -- the file's sha changed between
+    our read and our write, meaning another process wrote to it
+    concurrently. Distinct from other failures because it's worth
+    retrying (by re-reading fresh content, not just a fresh sha) rather
+    than treating it as a hard failure."""
+    pass
+
+
 def _headers(token: str, raw: bool = False) -> dict:
     accept = "application/vnd.github.v3.raw" if raw else "application/vnd.github.v3+json"
     return {"Accept": accept, "Authorization": f"token {token}"}
@@ -71,6 +80,11 @@ def put_file(path: str, content: str, token: str, message: str, data_repo: str =
         payload["sha"] = sha
 
     r = requests.put(url, headers=_headers(token, raw=False), json=payload, timeout=60)
+    if r.status_code == 409:
+        raise GitHubConflictError(
+            f"409 conflict writing {path} -- file was modified concurrently. "
+            f"Response body: {r.text[:500]}"
+        )
     if r.status_code not in (200, 201):
         raise RuntimeError(
             f"HTTP {r.status_code} from GitHub PUT {path}. Response body: {r.text[:1000]}"

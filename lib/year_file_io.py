@@ -24,6 +24,7 @@ This is deliberately the SAME code path for a normal same-day write and
 a backfill write -- no separate branch needed.
 """
 import io
+import time
 from datetime import datetime
 
 import pandas as pd
@@ -58,42 +59,67 @@ def _from_disk_format(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def write_day_into_year_file(interval_label: str, date_str: str, day_df: pd.DataFrame, github_token: str) -> None:
+def write_day_into_year_file(interval_label: str, date_str: str, day_df: pd.DataFrame, github_token: str,
+                              max_retries: int = 4) -> None:
     """day_df must have a 'timestamp' column (datetime or parseable
     string) plus open/high/low/close -- same shape aggregate.py already
-    produces. The date/time split happens here, not upstream."""
+    produces. The date/time split happens here, not upstream.
+
+    Retries on a 409 conflict (confirmed real in production, 7-Aug-2026 --
+    two overlapping workflow runs writing to the same year-file). Each
+    retry re-reads the file FRESH from GitHub and redoes the whole
+    merge, rather than just retrying the write with a new sha -- a
+    sha-only retry would silently overwrite whatever the concurrent
+    write had just added, since our in-memory 'existing_df' would still
+    be the stale pre-conflict version.
+    """
     path = year_file_path(interval_label, date_str)
-
-    existing_csv = github_io.get_file_raw(path, github_token)
-    if existing_csv:
-        existing_df = pd.read_csv(io.StringIO(existing_csv), dtype={"date": str, "time": str})
-        existing_df = _from_disk_format(existing_df)
-    else:
-        existing_df = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close"])
-
-    day_df = day_df.copy()
-    day_df["timestamp"] = pd.to_datetime(day_df["timestamp"])
-
-    # Drop any existing rows for this exact date -- full replace, not append.
     target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    if not existing_df.empty:
-        existing_df = existing_df[existing_df["timestamp"].dt.date != target_date]
 
-    combined = pd.concat([existing_df, day_df], ignore_index=True)
-    # Guard: concatenating with an empty existing_df (no year-file yet --
-    # true on this repo's very first run for a given interval) can leave
-    # 'timestamp' as a generic object dtype rather than datetime64,
-    # which breaks .dt access below. Force it back explicitly rather
-    # than relying on pandas to infer it correctly from a mixed concat.
-    combined["timestamp"] = pd.to_datetime(combined["timestamp"])
-    combined = combined.sort_values("timestamp").reset_index(drop=True)
+    for attempt in range(1, max_retries + 1):
+        existing_csv = github_io.get_file_raw(path, github_token)
+        if existing_csv:
+            existing_df = pd.read_csv(io.StringIO(existing_csv), dtype={"date": str, "time": str})
+            existing_df = _from_disk_format(existing_df)
+        else:
+            existing_df = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close"])
 
-    disk_df = _to_disk_format(combined)
-    csv_text = disk_df.to_csv(index=False)
+        day_df_copy = day_df.copy()
+        day_df_copy["timestamp"] = pd.to_datetime(day_df_copy["timestamp"])
 
-    github_io.put_file(
-        path, csv_text, github_token,
-        message=f"Update {interval_label} for {date_str}",
-    )
+        # Drop any existing rows for this exact date -- full replace, not append.
+        if not existing_df.empty:
+            existing_df = existing_df[existing_df["timestamp"].dt.date != target_date]
+
+        combined = pd.concat([existing_df, day_df_copy], ignore_index=True)
+        # Guard: concatenating with an empty existing_df (no year-file yet --
+        # true on this repo's very first run for a given interval) can leave
+        # 'timestamp' as a generic object dtype rather than datetime64,
+        # which breaks .dt access below. Force it back explicitly rather
+        # than relying on pandas to infer it correctly from a mixed concat.
+        combined["timestamp"] = pd.to_datetime(combined["timestamp"])
+        combined = combined.sort_values("timestamp").reset_index(drop=True)
+
+        disk_df = _to_disk_format(combined)
+        csv_text = disk_df.to_csv(index=False)
+
+        try:
+            github_io.put_file(
+                path, csv_text, github_token,
+                message=f"Update {interval_label} for {date_str}",
+            )
+            break
+        except github_io.GitHubConflictError as e:
+            if attempt == max_retries:
+                raise RuntimeError(
+                    f"Failed to write {path} after {max_retries} attempts -- "
+                    f"repeated concurrent-write conflicts."
+                ) from e
+            wait = attempt * 2
+            print(f"[year_file_io] Conflict writing {path} (attempt {attempt}/{max_retries}) -- "
+                  f"re-reading fresh content and retrying in {wait}s...")
+            time.sleep(wait)
+            continue
+
     print(f"[year_file_io] Wrote {len(day_df)} rows for {date_str} into {path} "
           f"(file now has {len(disk_df)} total rows)")
