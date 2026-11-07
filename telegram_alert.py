@@ -27,6 +27,7 @@ Status values per block:
   "success" -> "fetched for {date}"
   "partial" -> "partially fetched for {date} -- {detail}"
   "failure" -> "NOT available for {date} -- all attempts failed"
+  "skipped" -> "skipped: {detail} ({date})" -- a weekend/listed holiday, nothing to fetch
 
 Wrapped in try/except throughout: a Telegram-side failure (bad token,
 network issue, API outage) is logged and swallowed here, and never fails
@@ -52,6 +53,9 @@ def line_for_job(label: str, status: str, detail: str, date: str):
     if status == "partial":
         suffix = f" — {detail}" if detail else ""
         return f"⚠️ {label} partially fetched for {report_date}{suffix}"
+    if status == "skipped":
+        reason = detail or "holiday/weekend"
+        return f"ℹ️ {label} skipped: {reason} ({report_date})"
     if status == "failure":
         return f"❌ {label} NOT available for {report_date} — all attempts failed"
 

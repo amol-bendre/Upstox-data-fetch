@@ -68,17 +68,17 @@ def main():
     target_date = os.environ.get("TARGET_DATE", "").strip() or date_utils.today_ist_str()
     gha_output.set_output("date", target_date)
 
-    if date_utils.is_weekend(target_date):
-        print(f"{target_date} is a weekend -- skipping.")
+    # Weekend / listed-holiday gate. A special session (dated row in
+    # trading_window.csv, e.g. Muhurat) is NOT skipped, even on a weekend.
+    # FORCE=true (manual dispatch only) bypasses the skip.
+    info = date_utils.resolve_day(target_date, github_token)
+    if info["skip"] and not date_utils.force_enabled():
+        print(f"{target_date} is a {info['kind']} -- skipping. (Set FORCE=true to override.)")
         gha_output.set_output("available", "skipped")
-        gha_output.set_output("detail", "weekend")
+        gha_output.set_output("detail", info["detail"])
         return
-
-    if date_utils.is_holiday(target_date, github_token):
-        print(f"{target_date} is a listed holiday -- skipping.")
-        gha_output.set_output("available", "skipped")
-        gha_output.set_output("detail", "holiday")
-        return
+    if info["skip"]:
+        print(f"{target_date} is a {info['kind']} but FORCE=true -- fetching anyway.")
 
     guard = RunDateGuard(target_date)
 

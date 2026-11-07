@@ -10,7 +10,8 @@ Runs daily at 6 PM IST via GitHub Actions; supports manual backfill via
 ```
 lib/
   config.py           constants (NIFTY_KEY, repo paths, pacing, etc.)
-  date_utils.py        IST time helpers, holiday check
+  date_utils.py        IST time helpers, day resolver (skip / special / normal)
+  session_window.py     trading_window.csv + holidays.txt -> day kind and session times
   github_io.py         GitHub Contents API read/write (1MB-safe reads)
   upstox_candles.py    shared fetch_candles() -- Intraday vs Historical
   option_chain.py      instrument-key lookup, expiry list
@@ -94,11 +95,27 @@ to F&O-eligible *stocks*, not to the derivative contracts themselves.
   still logged in the run output for visibility, just don't fail the
   job. Revisit after observing a few real trading days.
 
+## Day gate and special sessions (Muhurat)
+
+`lib/session_window.py` resolves each target date from two files in the data repo
+(same rules as the live OI app and NSE-data-fetch):
+
+| Rule (in order) | Result |
+|---|---|
+| dated row in `trading_window.csv` (e.g. Muhurat) | **special** – runs, with that row's times |
+| Saturday / Sunday | **weekend** – skipped |
+| date listed in `holidays.txt` (first token per line, `#` comments ignored) | **holiday** – skipped |
+| otherwise | **normal** – DEFAULT row (09:15–15:40) |
+
+- Skipped days make no Upstox call and report `skipped` (Telegram, scheduled runs only: `ℹ️ Nifty OHLC skipped: holiday/weekend (date)`), so the relay can dispatch every day of the week.
+- The Nifty gap-check grid runs from `trading_start` to `trading_end - 1 minute` (09:15–15:39 normally; 14:20–15:39 for the 2026 Muhurat row), and the 5/15/30/1h buckets are pinned to `trading_start`.
+- If either file is unreadable the scripts fall back to the built-in 09:15–15:40 times and "no listed holidays" (weekends are still skipped).
+- Manual override: dispatch with `force=true` (and an explicit `target_date`) to fetch a weekend/listed holiday anyway.
+- Remember the Upstox access token is refreshed on weekdays only: a special session on a weekend needs a fresh token first.
+
 ## Deliberately deferred / out of scope for this build
 
 - Volume column on options OHLC (pending a separate test)
-- `special_sessions.txt` handling (accepted gap -- will misfire on
-  Muhurat trading day specifically)
 - Old `nifty_5min_final_2026.csv`-style files -- untouched by this repo;
   manual cleanup/rename is on you, per earlier discussion. Note the new
   files use a `date,time,...` schema instead of the old single

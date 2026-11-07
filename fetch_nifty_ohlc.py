@@ -24,15 +24,18 @@ import pandas as pd
 
 from lib import date_utils, upstox_candles, year_file_io, gha_output
 from lib.aggregate import aggregate_all
-from lib.config import NIFTY_KEY, SESSION_START, SESSION_END
+from lib.config import NIFTY_KEY
+from lib.session_window import fmt_hm
 from lib.date_guard import RunDateGuard
 
 
-def build_session_grid(date_str: str) -> set:
-    """Every expected 1-min timestamp label from 09:15 to 15:29 for the
-    given date, as a set of 'YYYY-MM-DD HH:MM:SS' strings."""
-    start = pd.Timestamp(f"{date_str} {SESSION_START}:00")
-    end = pd.Timestamp(f"{date_str} {SESSION_END}:00")
+def build_session_grid(date_str: str, start_min: int, end_min: int) -> set:
+    """Every expected 1-min timestamp label from the session's first candle
+    (trading_start) to its last (trading_end - 1 minute: 09:15 to 15:39 on a
+    normal day) for the given date, as a set of 'YYYY-MM-DD HH:MM:SS' strings.
+    Times are minutes since midnight, from trading_window.csv."""
+    start = pd.Timestamp(f"{date_str} {fmt_hm(start_min)}:00")
+    end = pd.Timestamp(f"{date_str} {fmt_hm(end_min - 1)}:00")
     return set(pd.date_range(start, end, freq="1min").strftime("%Y-%m-%d %H:%M:%S"))
 
 
@@ -54,17 +57,17 @@ def main():
     target_date = os.environ.get("TARGET_DATE", "").strip() or date_utils.today_ist_str()
     gha_output.set_output("date", target_date)
 
-    if date_utils.is_weekend(target_date):
-        print(f"{target_date} is a weekend -- skipping.")
+    # Weekend / listed-holiday gate. A special session (dated row in
+    # trading_window.csv, e.g. Muhurat) is NOT skipped, even on a weekend.
+    # FORCE=true (manual dispatch only) bypasses the skip.
+    info = date_utils.resolve_day(target_date, github_token)
+    if info["skip"] and not date_utils.force_enabled():
+        print(f"{target_date} is a {info['kind']} -- skipping. (Set FORCE=true to override.)")
         gha_output.set_output("available", "skipped")
-        gha_output.set_output("detail", "weekend")
+        gha_output.set_output("detail", info["detail"])
         return
-
-    if date_utils.is_holiday(target_date, github_token):
-        print(f"{target_date} is a listed holiday -- skipping.")
-        gha_output.set_output("available", "skipped")
-        gha_output.set_output("detail", "holiday")
-        return
+    if info["skip"]:
+        print(f"{target_date} is a {info['kind']} but FORCE=true -- fetching anyway.")
 
     guard = RunDateGuard(target_date)
 
@@ -97,7 +100,7 @@ def main():
     # count for visibility while we observe a few days of real behavior,
     # without treating a gap as a hard failure in the meantime -- revisit
     # once there's enough evidence to set a confident rule again.
-    expected = build_session_grid(target_date)
+    expected = build_session_grid(target_date, info["start"], info["end"])
     actual = set(df["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S"))
     missing = sorted(expected - actual)
     gap_detected = len(missing) > 0
@@ -119,7 +122,7 @@ def main():
     year_file_io.write_day_into_year_file("1min", target_date, df, github_token)
 
     # Derive and write every higher timeframe.
-    derived = aggregate_all(df)
+    derived = aggregate_all(df, origin_hm=(info["start"] // 60, info["start"] % 60))
     for interval_label, derived_df in derived.items():
         if derived_df.empty:
             print(f"  Skipping write for {interval_label} -- no rows derived.")
