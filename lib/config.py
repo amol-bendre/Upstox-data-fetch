@@ -27,5 +27,11 @@ OPTIONS_FETCH_PACING_SECONDS = 0.8
 # this matters even though the index itself didn't populate 15:30-15:39
 # on day one, precisely so the observational log can show us if/when
 # that changes on a future day, rather than being blind to that window.
+#
+# NOTE: the grid is no longer driven by these two constants. Per-day times
+# come from trading_window.csv via lib/session_window.py (start = trading_start,
+# end = trading_end - 1 minute, the last 1-min candle label). These remain only
+# as documentation of the built-in normal-day values, which session_window.BUILTIN
+# reproduces whenever the file is missing or has no DEFAULT row.
 SESSION_START = "09:15"
 SESSION_END = "15:39"  # last 1-min candle label of the extended session
