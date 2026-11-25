@@ -39,8 +39,8 @@ jobs:
         id: fetch
         env:
           UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
-          DATA_REPO_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
-          DATA_REPO: amol-bendre/stock-market-data
+          DATA_REPO_TOKEN: ${{ secrets.TEST_REPO_TOKEN }}
+          DATA_REPO: amol-bendre/stock-market-data-test
           TARGET_DATE: ${{ github.event.inputs.target_date }}
           FORCE: ${{ github.event.inputs.force }}
         run: python fetch_nifty_ohlc.py
@@ -74,8 +74,8 @@ jobs:
         id: fetch
         env:
           UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
-          DATA_REPO_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
-          DATA_REPO: amol-bendre/stock-market-data
+          DATA_REPO_TOKEN: ${{ secrets.TEST_REPO_TOKEN }}
+          DATA_REPO: amol-bendre/stock-market-data-test
           TARGET_DATE: ${{ github.event.inputs.target_date }}
           FORCE: ${{ github.event.inputs.force }}
         run: python fetch_options_ohlc.py
@@ -115,11 +115,11 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           IS_LAST_ATTEMPT: ${{ github.event.inputs.is_scheduled_run == 'true' }}
-          JOB1_LABEL: "Nifty OHLC"
+          JOB1_LABEL: "[GitHub test] Nifty OHLC"
           JOB1_STATUS: ${{ needs.nifty.outputs.available == 'true' && 'success' || (needs.nifty.outputs.available == 'partial' && 'partial' || (needs.nifty.outputs.available == 'skipped' && 'skipped' || 'failure')) }}
           JOB1_DETAIL: ${{ needs.nifty.outputs.detail }}
           JOB1_DATE: ${{ needs.nifty.outputs.date }}
-          JOB2_LABEL: "Options EOD OHLC"
+          JOB2_LABEL: "[GitHub test] Options EOD OHLC"
           JOB2_STATUS: ${{ needs.options.outputs.available == 'true' && 'success' || (needs.options.outputs.available == 'partial' && 'partial' || (needs.options.outputs.available == 'skipped' && 'skipped' || 'failure')) }}
           JOB2_DETAIL: ${{ needs.options.outputs.detail }}
           JOB2_DATE: ${{ needs.options.outputs.date }}
